@@ -220,22 +220,35 @@ const GoBoard: React.FC<GoBoardProps> = ({
 
   const renderStones = () => {
     const stoneRadius = cellSize * 0.48; // Responsive stone size
+    const lastStoneIndex = stones.length - 1;
     
     return stones.map((stone, index) => {
       const x = getCoordinatePosition(stone.col);
       const y = getCoordinatePosition(stone.row);
+      const isLastStone = index === lastStoneIndex;
       
       if (stone.color === 'black') {
         return (
-          <circle
-            key={`stone-${index}`}
-            cx={x}
-            cy={y}
-            r={stoneRadius}
-            fill="url(#blackStone)"
-            filter="url(#dropShadow)"
-            style={{ cursor: interactive ? 'pointer' : 'default' }}
-          />
+          <g key={`stone-${index}`}>
+            <circle
+              cx={x}
+              cy={y}
+              r={stoneRadius}
+              fill="url(#blackStone)"
+              filter="url(#dropShadow)"
+              style={{ cursor: interactive ? 'pointer' : 'default' }}
+            />
+            {isLastStone && (
+              <circle
+                cx={x}
+                cy={y}
+                r={stoneRadius * 0.5}
+                fill="none"
+                stroke="white"
+                strokeWidth={stoneRadius * 0.08}
+              />
+            )}
+          </g>
         );
       } else {
         return (
@@ -258,6 +271,16 @@ const GoBoard: React.FC<GoBoardProps> = ({
               r={stoneRadius * 0.875}
               fill="url(#whiteStoneHighlight)"
             />
+            {isLastStone && (
+              <circle
+                cx={x}
+                cy={y}
+                r={stoneRadius * 0.5}
+                fill="none"
+                stroke="black"
+                strokeWidth={stoneRadius * 0.08}
+              />
+            )}
           </g>
         );
       }
@@ -275,8 +298,7 @@ const GoBoard: React.FC<GoBoardProps> = ({
           background: '#deb887',
           border: `${size * 0.03}px solid #8b4513`,
           borderRadius: '8px',
-          boxShadow: '0 4px 8px rgba(0,0,0,0.3)',
-          cursor: interactive ? 'crosshair' : 'default'
+          boxShadow: '0 4px 8px rgba(0,0,0,0.3)'
         }}
       >
         <defs>
