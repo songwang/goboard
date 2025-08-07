@@ -17,23 +17,20 @@ interface GoBoardProps {
 }
 
 const GoBoard: React.FC<GoBoardProps> = ({
-  size = 500,
+  size = 19,
   boardSize = 19,
   initialStones = [],
   onStonePlace,
   interactive = true,
-  showStarPoints = true,
-  showCoordinates = false
+  showCoordinates = true
 }) => {
   const [stones, setStones] = useState<Stone[]>(initialStones);
   const [nextStone, setNextStone] = useState<'black' | 'white'>('black');
 
-  // Calculate grid spacing and positions
-  const margin = size * 0.05; // 5% margin
-  const gridSize = size - (margin * 2);
-  const cellSize = gridSize / (boardSize - 1);
+  // Calculate cell size based on board size
+  const cellSize = size === 19 ? 25 : size === 13 ? 30 : 35;
 
-  // Generate star point positions for standard board sizes
+  // Generate star point positions
   const getStarPoints = (): { row: number; col: number }[] => {
     if (boardSize === 19) {
       return [
@@ -57,295 +54,356 @@ const GoBoard: React.FC<GoBoardProps> = ({
     return [];
   };
 
-  const getCoordinatePosition = (index: number) => margin + (index * cellSize);
+  const starPoints = getStarPoints();
+  const letters = 'ABCDEFGHJKLMNOPQRST'.slice(0, boardSize);
 
-  const handleClick = (event: React.MouseEvent<SVGSVGElement>) => {
+  const handleIntersectionClick = (row: number, col: number) => {
     if (!interactive) return;
 
-    const svg = event.currentTarget;
-    const rect = svg.getBoundingClientRect();
-    
-    // Get click position relative to SVG
-    const x = event.clientX - rect.left;
-    const y = event.clientY - rect.top;
-    
-    // Scale to SVG coordinates
-    const svgX = (x / rect.width) * size;
-    const svgY = (y / rect.height) * size;
-    
-    // Snap to nearest intersection
-    const col = Math.round((svgX - margin) / cellSize);
-    const row = Math.round((svgY - margin) / cellSize);
-    
-    // Check if position is within board bounds
-    if (col >= 0 && col < boardSize && row >= 0 && row < boardSize) {
-      // Check if position is already occupied
-      const occupied = stones.some(stone => stone.row === row && stone.col === col);
-      
-      if (!occupied) {
-        const newStone: Stone = { row, col, color: nextStone };
-        setStones([...stones, newStone]);
-        setNextStone(nextStone === 'black' ? 'white' : 'black');
-        
-        if (onStonePlace) {
-          onStonePlace(row, col, nextStone);
-        }
-      }
+    // Check if position is already occupied
+    const occupied = stones.some(stone => stone.row === row && stone.col === col);
+    if (occupied) return;
+
+    const newStone: Stone = { row, col, color: nextStone };
+    setStones([...stones, newStone]);
+    setNextStone(nextStone === 'black' ? 'white' : 'black');
+
+    if (onStonePlace) {
+      onStonePlace(row, col, nextStone);
     }
   };
 
-  const renderGridLines = () => {
-    const lines = [];
-    
-    // Horizontal lines
-    for (let i = 0; i < boardSize; i++) {
-      const y = getCoordinatePosition(i);
-      lines.push(
-        <line
-          key={`h-${i}`}
-          x1={margin}
-          y1={y}
-          x2={size - margin}
-          y2={y}
-          stroke="black"
-          strokeWidth="1"
-        />
-      );
-    }
-    
-    // Vertical lines
-    for (let i = 0; i < boardSize; i++) {
-      const x = getCoordinatePosition(i);
-      lines.push(
-        <line
-          key={`v-${i}`}
-          x1={x}
-          y1={margin}
-          x2={x}
-          y2={size - margin}
-          stroke="black"
-          strokeWidth="1"
-        />
-      );
-    }
-    
-    return lines;
+  const getIntersectionType = (row: number, col: number) => {
+    const isTopEdge = row === 0;
+    const isBottomEdge = row === boardSize - 1;
+    const isLeftEdge = col === 0;
+    const isRightEdge = col === boardSize - 1;
+
+    if (isTopEdge && isLeftEdge) return 'corner-top-left';
+    if (isTopEdge && isRightEdge) return 'corner-top-right';
+    if (isBottomEdge && isLeftEdge) return 'corner-bottom-left';
+    if (isBottomEdge && isRightEdge) return 'corner-bottom-right';
+    if (isTopEdge) return 'edge-top';
+    if (isBottomEdge) return 'edge-bottom';
+    if (isLeftEdge) return 'edge-left';
+    if (isRightEdge) return 'edge-right';
+    return 'interior';
   };
 
-  const renderStarPoints = () => {
-    if (!showStarPoints) return null;
-    
-    return getStarPoints().map(({ row, col }, index) => (
-      <circle
-        key={`star-${index}`}
-        cx={getCoordinatePosition(col)}
-        cy={getCoordinatePosition(row)}
-        r={size * 0.006} // Responsive star point size
-        fill="black"
-      />
-    ));
-  };
+  const renderGridLines = (_row: number, _col: number, type: string) => {
+    const lineStyle = {
+      position: 'absolute' as const,
+      backgroundColor: 'black',
+    };
 
-  const renderCoordinates = () => {
-    if (!showCoordinates) return null;
-    
-    const letters = 'ABCDEFGHJKLMNOPQRST'; // I is skipped in Go notation
-    const coords = [];
-    
-    for (let i = 0; i < boardSize; i++) {
-      const pos = getCoordinatePosition(i);
-      const fontSize = size * 0.024; // Responsive font size
-      
-      // Top and bottom letters
-      coords.push(
-        <text
-          key={`top-${i}`}
-          x={pos}
-          y={margin * 0.6}
-          textAnchor="middle"
-          fontSize={fontSize}
-          fill="#8b4513"
-          fontWeight="bold"
-        >
-          {letters[i]}
-        </text>
-      );
-      
-      coords.push(
-        <text
-          key={`bottom-${i}`}
-          x={pos}
-          y={size - margin * 0.3}
-          textAnchor="middle"
-          fontSize={fontSize}
-          fill="#8b4513"
-          fontWeight="bold"
-        >
-          {letters[i]}
-        </text>
-      );
-      
-      // Left and right numbers
-      coords.push(
-        <text
-          key={`left-${i}`}
-          x={margin * 0.4}
-          y={pos + fontSize * 0.3}
-          textAnchor="middle"
-          fontSize={fontSize}
-          fill="#8b4513"
-          fontWeight="bold"
-        >
-          {boardSize - i}
-        </text>
-      );
-      
-      coords.push(
-        <text
-          key={`right-${i}`}
-          x={size - margin * 0.4}
-          y={pos + fontSize * 0.3}
-          textAnchor="middle"
-          fontSize={fontSize}
-          fill="#8b4513"
-          fontWeight="bold"
-        >
-          {boardSize - i}
-        </text>
-      );
-    }
-    
-    return coords;
-  };
+    const horizontalLine = {
+      ...lineStyle,
+      height: '1px',
+      top: '50%',
+      transform: 'translateY(-50%)',
+    };
 
-  const renderStones = () => {
-    const stoneRadius = cellSize * 0.48; // Responsive stone size
-    const lastStoneIndex = stones.length - 1;
-    
-    return stones.map((stone, index) => {
-      const x = getCoordinatePosition(stone.col);
-      const y = getCoordinatePosition(stone.row);
-      const isLastStone = index === lastStoneIndex;
-      
-      if (stone.color === 'black') {
+    const verticalLine = {
+      ...lineStyle,
+      width: '1px',
+      left: '50%',
+      transform: 'translateX(-50%)',
+    };
+
+    switch (type) {
+      case 'corner-top-left':
         return (
-          <g key={`stone-${index}`}>
-            <circle
-              cx={x}
-              cy={y}
-              r={stoneRadius}
-              fill="url(#blackStone)"
-              filter="url(#dropShadow)"
-              style={{ cursor: interactive ? 'pointer' : 'default' }}
-            />
-            {isLastStone && (
-              <circle
-                cx={x}
-                cy={y}
-                r={stoneRadius * 0.5}
-                fill="none"
-                stroke="white"
-                strokeWidth={stoneRadius * 0.08}
-              />
-            )}
-          </g>
+          <>
+            <div style={{ ...horizontalLine, width: '50%', left: '50%' }} />
+            <div style={{ ...verticalLine, height: '50%', top: '50%' }} />
+          </>
         );
-      } else {
+      case 'corner-top-right':
         return (
-          <g
-            key={`stone-${index}`}
-            filter="url(#dropShadow)"
-            style={{ cursor: interactive ? 'pointer' : 'default' }}
-          >
-            <circle
-              cx={x}
-              cy={y}
-              r={stoneRadius}
-              fill="url(#whiteStoneBase)"
-              stroke="#c3c3c3"
-              strokeWidth={stoneRadius * 0.04}
-            />
-            <circle
-              cx={x}
-              cy={y}
-              r={stoneRadius * 0.875}
-              fill="url(#whiteStoneHighlight)"
-            />
-            {isLastStone && (
-              <circle
-                cx={x}
-                cy={y}
-                r={stoneRadius * 0.5}
-                fill="none"
-                stroke="black"
-                strokeWidth={stoneRadius * 0.08}
-              />
-            )}
-          </g>
+          <>
+            <div style={{ ...horizontalLine, width: '50%', left: '0' }} />
+            <div style={{ ...verticalLine, height: '50%', top: '50%' }} />
+          </>
         );
-      }
-    });
+      case 'corner-bottom-left':
+        return (
+          <>
+            <div style={{ ...horizontalLine, width: '50%', left: '50%' }} />
+            <div style={{ ...verticalLine, height: '50%', top: '0' }} />
+          </>
+        );
+      case 'corner-bottom-right':
+        return (
+          <>
+            <div style={{ ...horizontalLine, width: '50%', left: '0' }} />
+            <div style={{ ...verticalLine, height: '50%', top: '0' }} />
+          </>
+        );
+      case 'edge-top':
+        return (
+          <>
+            <div style={{ ...horizontalLine, width: '100%', left: '0' }} />
+            <div style={{ ...verticalLine, height: '50%', top: '50%' }} />
+          </>
+        );
+      case 'edge-bottom':
+        return (
+          <>
+            <div style={{ ...horizontalLine, width: '100%', left: '0' }} />
+            <div style={{ ...verticalLine, height: '50%', top: '0' }} />
+          </>
+        );
+      case 'edge-left':
+        return (
+          <>
+            <div style={{ ...horizontalLine, width: '50%', left: '50%' }} />
+            <div style={{ ...verticalLine, height: '100%', top: '0' }} />
+          </>
+        );
+      case 'edge-right':
+        return (
+          <>
+            <div style={{ ...horizontalLine, width: '50%', left: '0' }} />
+            <div style={{ ...verticalLine, height: '100%', top: '0' }} />
+          </>
+        );
+      default: // interior
+        return (
+          <>
+            <div style={{ ...horizontalLine, width: '100%', left: '0' }} />
+            <div style={{ ...verticalLine, height: '100%', top: '0' }} />
+          </>
+        );
+    }
   };
 
-  return (
-    <div style={{ display: 'flex', justifyContent: 'center', padding: '20px' }}>
-      <svg
-        width={size}
-        height={size}
-        viewBox={`0 0 ${size} ${size}`}
-        onClick={handleClick}
-        style={{
-          background: '#deb887',
-          border: `${size * 0.03}px solid #8b4513`,
-          borderRadius: '8px',
-          boxShadow: '0 4px 8px rgba(0,0,0,0.3)'
+  const renderIntersection = (row: number, col: number) => {
+    const intersectionType = getIntersectionType(row, col);
+    const isStarPoint = starPoints.some(point => point.row === row && point.col === col);
+    const stone = stones.find(s => s.row === row && s.col === col);
+    const isLastStone = stone && stones.indexOf(stone) === stones.length - 1;
+
+    const intersectionStyle = {
+      width: `${cellSize}px`,
+      height: `${cellSize}px`,
+      position: 'relative' as const,
+      cursor: interactive && !stone ? 'crosshair' : 'default',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+    };
+
+    const stoneSize = Math.floor(cellSize * 0.8);
+
+    return (
+      <div
+        key={`${row}-${col}`}
+        style={intersectionStyle}
+        onClick={() => handleIntersectionClick(row, col)}
+        onMouseEnter={() => {
+          if (interactive && !stone) {
+            // Could add hover effect here
+          }
         }}
       >
-        <defs>
-          {/* Black stone gradient */}
-          <radialGradient id="blackStone" cx="30%" cy="30%">
-            <stop offset="0%" stopColor="#666" />
-            <stop offset="70%" stopColor="#222" />
-            <stop offset="100%" stopColor="#000" />
-          </radialGradient>
-          
-          {/* White stone gradient (base layer) */}
-          <linearGradient id="whiteStoneBase" x1="0%" y1="100%" x2="0%" y2="0%">
-            <stop offset="0%" stopColor="#C9D1FF" />
-            <stop offset="100%" stopColor="#fff" />
-          </linearGradient>
-          
-          {/* White stone highlight (top layer) */}
-          <linearGradient id="whiteStoneHighlight" x1="0%" y1="85%" x2="0%" y2="65%">
-            <stop offset="0%" stopColor="#eee" stopOpacity="0.8" />
-            <stop offset="100%" stopColor="#eee" stopOpacity="0" />
-          </linearGradient>
-          
-          {/* Drop shadow filter */}
-          <filter id="dropShadow" x="-50%" y="-50%" width="200%" height="200%">
-            <feDropShadow dx="2" dy="3" stdDeviation="2" floodOpacity="0.4" />
-          </filter>
-        </defs>
-        
         {/* Grid lines */}
-        {renderGridLines()}
+        {renderGridLines(row, col, intersectionType)}
         
-        {/* Star points */}
-        {renderStarPoints()}
+        {/* Star point */}
+        {isStarPoint && (
+          <div
+            style={{
+              position: 'absolute',
+              width: '4px',
+              height: '4px',
+              backgroundColor: 'black',
+              borderRadius: '50%',
+              zIndex: 5,
+            }}
+          />
+        )}
         
-        {/* Coordinates */}
-        {renderCoordinates()}
+        {/* Stone */}
+        {stone && (
+          <div
+            style={{
+              position: 'absolute',
+              width: `${stoneSize}px`,
+              height: `${stoneSize}px`,
+              borderRadius: '50%',
+              zIndex: 10,
+              boxShadow: '0 2px 4px rgba(0,0,0,0.3)',
+              cursor: 'pointer',
+              background: stone.color === 'black' 
+                ? 'radial-gradient(circle at 30% 30%, #666, #222 70%, #000)'
+                : 'linear-gradient(to top, #C9D1FF, #fff)',
+              border: stone.color === 'black' ? '1px solid #000' : '1px solid #c3c3c3',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {/* White stone highlight */}
+            {stone.color === 'white' && (
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '2px',
+                  left: '2px',
+                  right: '2px',
+                  bottom: '4px',
+                  background: 'linear-gradient(to bottom, rgba(238, 238, 238, 0.8) 0%, rgba(238, 238, 238, 0) 100%)',
+                  borderRadius: '50%',
+                  pointerEvents: 'none',
+                }}
+              />
+            )}
+            
+            {/* Last stone indicator */}
+            {isLastStone && (
+              <div
+                style={{
+                  width: '6px',
+                  height: '6px',
+                  borderRadius: '50%',
+                  border: `1.5px solid ${stone.color === 'black' ? 'white' : 'black'}`,
+                  zIndex: 11,
+                }}
+              />
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const boardStyle = {
+    display: 'grid',
+    gridTemplateColumns: `repeat(${boardSize}, ${cellSize}px)`,
+    gridTemplateRows: `repeat(${boardSize}, ${cellSize}px)`,
+    gap: '0',
+    background: '#deb887',
+    border: '20px solid #8b4513',
+    borderRadius: '8px',
+    boxShadow: '0 4px 8px rgba(0,0,0,0.3)',
+    padding: '20px',
+  };
+
+  const containerStyle = {
+    display: 'flex',
+    flexDirection: 'column' as const,
+    alignItems: 'center',
+    padding: '20px',
+    background: '#f5f5dc',
+    minHeight: '100vh',
+  };
+
+
+  return (
+    <div style={containerStyle}>
+      <h1 style={{ color: '#333', marginBottom: '20px' }}>
+        React Go Board - HTML Elements ({boardSize}×{boardSize})
+      </h1>
+      
+      {showCoordinates && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${boardSize}, ${cellSize}px)`,
+          gap: '0',
+          marginBottom: '10px',
+          textAlign: 'center'
+        }}>
+          {letters.split('').map((letter, i) => (
+            <div key={i} style={{
+              fontSize: '12px',
+              fontWeight: 'bold',
+              color: '#8b4513',
+            }}>
+              {letter}
+            </div>
+          ))}
+        </div>
+      )}
+      
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        {showCoordinates && (
+          <div style={{ 
+            display: 'grid',
+            gridTemplateRows: `repeat(${boardSize}, ${cellSize}px)`,
+            gap: '0',
+            fontSize: '12px', 
+            fontWeight: 'bold', 
+            color: '#8b4513',
+            alignItems: 'center',
+            textAlign: 'center',
+            marginRight: '10px'
+          }}>
+            {Array.from({length: boardSize}, (_, i) => (
+              <div key={i}>{boardSize - i}</div>
+            ))}
+          </div>
+        )}
         
-        {/* Stones */}
-        {renderStones()}
-      </svg>
+        <div style={boardStyle}>
+          {Array.from({length: boardSize}, (_, row) =>
+            Array.from({length: boardSize}, (_, col) =>
+              renderIntersection(row, col)
+            )
+          )}
+        </div>
+        
+        {showCoordinates && (
+          <div style={{ 
+            display: 'grid',
+            gridTemplateRows: `repeat(${boardSize}, ${cellSize}px)`,
+            gap: '0',
+            fontSize: '12px', 
+            fontWeight: 'bold', 
+            color: '#8b4513',
+            alignItems: 'center',
+            textAlign: 'center',
+            marginLeft: '10px'
+          }}>
+            {Array.from({length: boardSize}, (_, i) => (
+              <div key={i}>{boardSize - i}</div>
+            ))}
+          </div>
+        )}
+      </div>
+      
+      {showCoordinates && (
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: `repeat(${boardSize}, ${cellSize}px)`,
+          gap: '0',
+          marginTop: '10px',
+          textAlign: 'center'
+        }}>
+          {letters.split('').map((letter, i) => (
+            <div key={i} style={{
+              fontSize: '12px',
+              fontWeight: 'bold',
+              color: '#8b4513',
+            }}>
+              {letter}
+            </div>
+          ))}
+        </div>
+      )}
+      
+      <div style={{ marginTop: '20px', textAlign: 'center', color: '#666' }}>
+        Next stone: <strong>{nextStone}</strong>
+        {interactive && ' (Click any intersection to place)'}
+      </div>
     </div>
   );
 };
 
-// Example usage with some sample configurations
+// Example usage with different board sizes
 const App = () => {
-  const [gameStones, setGameStones] = useState<Stone[]>([
+  const [selectedBoard, setSelectedBoard] = useState<19 | 13 | 9>(19);
+  
+  const sampleStones19: Stone[] = [
     { row: 3, col: 3, color: 'black' },
     { row: 3, col: 15, color: 'white' },
     { row: 15, col: 3, color: 'white' },
@@ -353,61 +411,74 @@ const App = () => {
     { row: 9, col: 9, color: 'black' },
     { row: 4, col: 4, color: 'white' },
     { row: 5, col: 3, color: 'black' },
-    { row: 6, col: 4, color: 'white' }
-  ]);
+    { row: 6, col: 4, color: 'white' },
+  ];
+
+  const sampleStones13: Stone[] = [
+    { row: 3, col: 3, color: 'black' },
+    { row: 9, col: 9, color: 'white' },
+    { row: 6, col: 6, color: 'black' },
+  ];
+
+  const sampleStones9: Stone[] = [
+    { row: 2, col: 2, color: 'black' },
+    { row: 6, col: 6, color: 'white' },
+    { row: 4, col: 4, color: 'black' },
+  ];
+
+  const getSampleStones = () => {
+    switch(selectedBoard) {
+      case 19: return sampleStones19;
+      case 13: return sampleStones13;
+      case 9: return sampleStones9;
+    }
+  };
 
   const handleStonePlace = (row: number, col: number, color: 'black' | 'white') => {
-    console.log(`Stone placed at ${row}, ${col}: ${color}`);
+    const letters = 'ABCDEFGHJKLMNOPQRST'.slice(0, selectedBoard);
+    console.log(`Stone placed at ${letters[col]}${selectedBoard - row}: ${color}`);
   };
 
   return (
-    <div style={{ background: '#f5f5dc', minHeight: '100vh', padding: '20px' }}>
-      <h1 style={{ textAlign: 'center', color: '#333', marginBottom: '30px' }}>
-        React Go Board Component
-      </h1>
-      
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '30px', alignItems: 'center' }}>
-        {/* Full 19x19 board with coordinates */}
-        <div>
-          <h3 style={{ textAlign: 'center', color: '#666' }}>19×19 Board with Coordinates</h3>
-          <GoBoard
-            size={600}
-            boardSize={19}
-            initialStones={gameStones}
-            onStonePlace={handleStonePlace}
-            showCoordinates={true}
-          />
-        </div>
-        
-        {/* Smaller 13x13 board */}
-        <div>
-          <h3 style={{ textAlign: 'center', color: '#666' }}>13×13 Board</h3>
-          <GoBoard
-            size={400}
-            boardSize={13}
-            initialStones={[
-              { row: 3, col: 3, color: 'black' },
-              { row: 9, col: 9, color: 'white' },
-              { row: 6, col: 6, color: 'black' }
-            ]}
-          />
-        </div>
-        
-        {/* Mini 9x9 board */}
-        <div>
-          <h3 style={{ textAlign: 'center', color: '#666' }}>9×9 Board (Non-interactive)</h3>
-          <GoBoard
-            size={300}
-            boardSize={9}
-            initialStones={[
-              { row: 2, col: 2, color: 'black' },
-              { row: 6, col: 6, color: 'white' },
-              { row: 4, col: 4, color: 'black' }
-            ]}
-            interactive={false}
-          />
-        </div>
+    <div>
+      <div style={{ 
+        position: 'fixed', 
+        top: '20px', 
+        right: '20px', 
+        background: 'white', 
+        padding: '10px', 
+        borderRadius: '8px',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+        zIndex: 1000
+      }}>
+        <div style={{ marginBottom: '10px', fontWeight: 'bold' }}>Board Size:</div>
+        {[19, 13, 9].map(size => (
+          <button
+            key={size}
+            onClick={() => setSelectedBoard(size as 19 | 13 | 9)}
+            style={{
+              margin: '2px',
+              padding: '5px 10px',
+              border: selectedBoard === size ? '2px solid #8b4513' : '1px solid #ccc',
+              borderRadius: '4px',
+              background: selectedBoard === size ? '#f5f5dc' : 'white',
+              cursor: 'pointer'
+            }}
+          >
+            {size}×{size}
+          </button>
+        ))}
       </div>
+      
+      <GoBoard
+        size={selectedBoard}
+        boardSize={selectedBoard}
+        initialStones={getSampleStones()}
+        onStonePlace={handleStonePlace}
+        interactive={true}
+        showStarPoints={true}
+        showCoordinates={true}
+      />
     </div>
   );
 };
