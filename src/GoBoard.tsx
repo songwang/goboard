@@ -1,5 +1,6 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import GoGame, { type Vertex, type Sign } from './GoGame';
+import SGFParser, { type SGFGame, type SGFMove } from './SGFParser';
 
 interface GoBoardProps {
   size?: number;
@@ -21,6 +22,12 @@ const GoBoard: React.FC<GoBoardProps> = ({
   const [currentPlayer, setCurrentPlayer] = useState<Sign>(1); // 1 for black, -1 for white
   const [hoverPosition, setHoverPosition] = useState<{ row: number; col: number } | null>(null);
   const [lastMove, setLastMove] = useState<{ row: number; col: number } | null>(null);
+  
+  // SGF replay state
+  const [sgfGame, setSgfGame] = useState<SGFGame | null>(null);
+  const [currentMoveIndex, setCurrentMoveIndex] = useState<number>(-1);
+  const [isReplayMode, setIsReplayMode] = useState<boolean>(false);
+  const [gameHistory, setGameHistory] = useState<GoGame[]>([]);
 
   // Calculate cell size based on board size
   const cellSize = size === 19 ? 25 : size === 13 ? 30 : 35;
@@ -52,9 +59,146 @@ const GoBoard: React.FC<GoBoardProps> = ({
   const starPoints = getStarPoints();
   const letters = 'ABCDEFGHJKLMNOPQRST'.slice(0, boardSize);
 
+  // Load SGF file
+  const handleSGFLoad = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const sgfContent = e.target?.result as string;
+        const parser = new SGFParser();
+        const parsedGame = parser.parse(sgfContent);
+        
+        setSgfGame(parsedGame);
+        setIsReplayMode(true);
+        setCurrentMoveIndex(-1);
+        
+        // Create initial game state
+        const initialGame = GoGame.fromDimensions(parsedGame.gameInfo.boardSize, parsedGame.gameInfo.boardSize);
+        setGame(initialGame);
+        setGameHistory([initialGame]);
+        setCurrentPlayer(1);
+        setLastMove(null);
+        
+        console.log('SGF loaded:', parsedGame);
+      } catch (error) {
+        console.error('Error parsing SGF:', error);
+        alert('Error loading SGF file: ' + error);
+      }
+    };
+    reader.readAsText(file);
+  }, []);
+
+  // Replay controls
+  const goToMove = useCallback((moveIndex: number) => {
+    if (!sgfGame || !isReplayMode) return;
+    
+    if (moveIndex < -1 || moveIndex >= sgfGame.moves.length) return;
+    
+    setCurrentMoveIndex(moveIndex);
+    
+    if (moveIndex === -1) {
+      // Go to start
+      const initialGame = GoGame.fromDimensions(sgfGame.gameInfo.boardSize, sgfGame.gameInfo.boardSize);
+      setGame(initialGame);
+      setCurrentPlayer(1);
+      setLastMove(null);
+      return;
+    }
+    
+    // Replay moves up to the current index
+    let gameState = GoGame.fromDimensions(sgfGame.gameInfo.boardSize, sgfGame.gameInfo.boardSize);
+    let lastMovePos = null;
+    
+    for (let i = 0; i <= moveIndex; i++) {
+      const move = sgfGame.moves[i];
+      const vertex = SGFParser.sgfToVertex(move.position, sgfGame.gameInfo.boardSize);
+      
+      if (vertex[0] !== -1 && vertex[1] !== -1) { // Not a pass move
+        const sign: Sign = move.color === 'B' ? 1 : -1;
+        
+        try {
+          gameState = gameState.makeMove(sign, vertex, {
+            preventOverwrite: true,
+            preventKo: true,
+            preventSuicide: false
+          });
+          
+          if (i === moveIndex) {
+            lastMovePos = { row: vertex[1], col: vertex[0] };
+          }
+        } catch (error) {
+          console.error(`Error making move ${i + 1}:`, error);
+          break;
+        }
+      }
+    }
+    
+    setGame(gameState);
+    setLastMove(lastMovePos);
+    
+    // Set current player to whoever should move next
+    const nextPlayer = sgfGame.moves[moveIndex].color === 'B' ? -1 : 1;
+    setCurrentPlayer(nextPlayer);
+  }, [sgfGame, isReplayMode]);
+
+  const goToFirst = useCallback(() => goToMove(-1), [goToMove]);
+  const goToLast = useCallback(() => {
+    if (sgfGame) goToMove(sgfGame.moves.length - 1);
+  }, [goToMove, sgfGame]);
+  
+  const goToPrevious = useCallback(() => {
+    goToMove(currentMoveIndex - 1);
+  }, [goToMove, currentMoveIndex]);
+  
+  const goToNext = useCallback(() => {
+    goToMove(currentMoveIndex + 1);
+  }, [goToMove, currentMoveIndex]);
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isReplayMode || !sgfGame) return;
+
+      // Prevent default browser behavior for navigation keys
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+      }
+
+      switch (event.key) {
+        case 'ArrowLeft':
+          if (currentMoveIndex > -1) {
+            goToPrevious();
+          }
+          break;
+        case 'ArrowRight':
+          if (currentMoveIndex < sgfGame.moves.length - 1) {
+            goToNext();
+          }
+          break;
+        case 'Home':
+          if (currentMoveIndex > -1) {
+            goToFirst();
+          }
+          break;
+        case 'End':
+          if (currentMoveIndex < sgfGame.moves.length - 1) {
+            goToLast();
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isReplayMode, sgfGame, currentMoveIndex, goToPrevious, goToNext, goToFirst, goToLast]);
+
+
 
   const handleIntersectionClick = useCallback((row: number, col: number) => {
-    if (!interactive) return;
+    if (!interactive || isReplayMode) return;
 
     // Convert UI coordinates (row, col) to GoGame coordinates (x, y)
     const vertex: Vertex = [col, row];
@@ -489,6 +633,111 @@ const GoBoard: React.FC<GoBoardProps> = ({
         )}
       </div>
       
+      {/* SGF Controls */}
+      <div style={{ marginTop: '20px', textAlign: 'center' }}>
+        <div style={{ marginBottom: '10px' }}>
+          <input
+            type="file"
+            accept=".sgf"
+            onChange={handleSGFLoad}
+            style={{
+              padding: '5px 10px',
+              border: '1px solid #ccc',
+              borderRadius: '4px',
+              background: 'white',
+              cursor: 'pointer',
+              marginBottom: '10px'
+            }}
+          />
+        </div>
+        
+        {isReplayMode && sgfGame && (
+          <div style={{ marginBottom: '10px' }}>
+            <div style={{ marginBottom: '10px', fontSize: '14px', fontWeight: 'bold' }}>
+              {sgfGame?.gameInfo.playerBlack && sgfGame?.gameInfo.playerWhite && (
+                <span>
+                  {sgfGame.gameInfo.playerBlack} (Black) vs {sgfGame.gameInfo.playerWhite} (White)
+                </span>
+              )}
+              {sgfGame?.gameInfo.result && (
+                <div style={{ fontSize: '12px', color: '#666' }}>
+                  Result: {sgfGame.gameInfo.result}
+                </div>
+              )}
+            </div>
+            
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginBottom: '10px' }}>
+              <button
+                onClick={goToFirst}
+                disabled={currentMoveIndex <= -1}
+                style={{
+                  padding: '5px 10px',
+                  border: '1px solid #8b4513',
+                  borderRadius: '4px',
+                  background: currentMoveIndex <= -1 ? '#f0f0f0' : 'white',
+                  cursor: currentMoveIndex <= -1 ? 'not-allowed' : 'pointer',
+                  color: currentMoveIndex <= -1 ? '#999' : '#8b4513'
+                }}
+              >
+                ⏮ First
+              </button>
+              
+              <button
+                onClick={goToPrevious}
+                disabled={currentMoveIndex <= -1}
+                style={{
+                  padding: '5px 10px',
+                  border: '1px solid #8b4513',
+                  borderRadius: '4px',
+                  background: currentMoveIndex <= -1 ? '#f0f0f0' : 'white',
+                  cursor: currentMoveIndex <= -1 ? 'not-allowed' : 'pointer',
+                  color: currentMoveIndex <= -1 ? '#999' : '#8b4513'
+                }}
+              >
+                ⏪ Back
+              </button>
+              
+              <button
+                onClick={goToNext}
+                disabled={!sgfGame || currentMoveIndex >= sgfGame.moves.length - 1}
+                style={{
+                  padding: '5px 10px',
+                  border: '1px solid #8b4513',
+                  borderRadius: '4px',
+                  background: !sgfGame || currentMoveIndex >= sgfGame.moves.length - 1 ? '#f0f0f0' : 'white',
+                  cursor: !sgfGame || currentMoveIndex >= sgfGame.moves.length - 1 ? 'not-allowed' : 'pointer',
+                  color: !sgfGame || currentMoveIndex >= sgfGame.moves.length - 1 ? '#999' : '#8b4513'
+                }}
+              >
+                Next ⏩
+              </button>
+              
+              <button
+                onClick={goToLast}
+                disabled={!sgfGame || currentMoveIndex >= sgfGame.moves.length - 1}
+                style={{
+                  padding: '5px 10px',
+                  border: '1px solid #8b4513',
+                  borderRadius: '4px',
+                  background: !sgfGame || currentMoveIndex >= sgfGame.moves.length - 1 ? '#f0f0f0' : 'white',
+                  cursor: !sgfGame || currentMoveIndex >= sgfGame.moves.length - 1 ? 'not-allowed' : 'pointer',
+                  color: !sgfGame || currentMoveIndex >= sgfGame.moves.length - 1 ? '#999' : '#8b4513'
+                }}
+              >
+                Last ⏭
+              </button>
+            </div>
+            
+            <div style={{ fontSize: '12px', color: '#666', marginBottom: '10px' }}>
+              Move {currentMoveIndex + 1} of {sgfGame?.moves.length || 0}
+              {currentMoveIndex >= 0 && sgfGame?.moves[currentMoveIndex] && (
+                <span> - {sgfGame.moves[currentMoveIndex].color === 'B' ? 'Black' : 'White'} played {sgfGame.moves[currentMoveIndex].position}</span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div style={{ marginTop: '20px', textAlign: 'center', color: '#666' }}>
         <div>
           <strong>Current player: {currentPlayer === 1 ? 'Black' : 'White'}</strong>
@@ -496,9 +745,14 @@ const GoBoard: React.FC<GoBoardProps> = ({
         <div style={{ fontSize: '14px', marginTop: '5px' }}>
           Black captures: {game.getCaptures(1)} | White captures: {game.getCaptures(-1)}
         </div>
-        {interactive && (
+        {interactive && !isReplayMode && (
           <div style={{ fontSize: '12px', marginTop: '5px', fontStyle: 'italic' }}>
             Click any empty intersection to place a stone
+          </div>
+        )}
+        {isReplayMode && (
+          <div style={{ fontSize: '12px', marginTop: '5px', fontStyle: 'italic' }}>
+            Replay mode - Use controls above to navigate
           </div>
         )}
       </div>
